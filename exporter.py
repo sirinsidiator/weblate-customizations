@@ -98,7 +98,9 @@ class LibGetTextFile(base.TranslationStore):
         for ce in self.units:
             values = ce.todict()
             if values["target"] != "":
-                line = TEXT_LINE_TEMPLATE.format(values["source"], values["target"])
+                source = values["source"].replace("\n", "\\n")
+                target = values["target"].replace("\n", "\\n")
+                line = TEXT_LINE_TEMPLATE.format(source, target)
                 lines.append(line)
         return "\n".join(lines)
 
