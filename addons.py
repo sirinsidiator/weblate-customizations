@@ -22,59 +22,31 @@ from weblate.trans.util import (
 from weblate.utils.errors import report_error
 from weblate.utils.render import render_template
 
-class UpdateMessagesForm(BaseAddonForm):
-    owner_name = forms.CharField(
-        label=_("Copyright holder:"),
-        required=True,
-    )
-    bugs_address = forms.CharField(
-        label=_("Bugs address:"),
-        initial="{{ url }}",
-        required=False,
-        help_text=_(
-            "URL or email where translators should report issues with the untranslated strings. "
-            "The weblate project url will be used if left empty"
-        ),
-    )
-    source_folder = forms.CharField(
-        label=_("Source folder:"),
-        initial="./",
-        required=False,
-        help_text=_(
-            "A relative path to the source files inside the repository. "
-            "The project root will be used if left empty"
-        ),
-    )
-    target_folder = forms.CharField(
-        label=_("Path of generated lua files"),
-        initial="{{ filename|dirname }}/{{ language_code }}.lua",
-        required=False,
-        help_text=_("If not specified, the location of the PO file will be used."),
-    )
-
-class UpdateMessagesAddon(StoreBaseAddon):
+class LibGetTextBaseAddon(StoreBaseAddon):
     compat = {"file_format": {"po-mono"}}
-    events = (EVENT_PRE_COMMIT, EVENT_POST_UPDATE)
-    name = "sirinsidiator.libgettext.updatemessages"
-    verbose = _("LibGetText Update Messages")
-    description = _("This add-on uses xgettext to update the template file whenever the source repository has been changed.")
     alert = "AddonScriptError"
-    settings_form = UpdateMessagesForm
 
-    @classmethod
-    def can_install(cls, component, user):
-        if find_command("xgettext") is None:
-            return False
-        return super().can_install(component, user)
+    def get_config(self, component, name, default):
+        try:
+            value = component.addon_set.get(
+                name="sirinsidiator.libgettext.config"
+            ).configuration[name]
+            if value is not None:
+                return value
+        except ObjectDoesNotExist:
+            pass
+        return default
+
+class GenerateLuaFiles(LibGetTextBaseAddon):
+    events = (EVENT_PRE_COMMIT,)
+    name = "sirinsidiator.libgettext.generateluafiles"
+    verbose = _("LibGetText Generate Lua Files")
+    description = _("This add-on generates the translation Lua files for LibGetText whenever translation changes are committed.")
 
     def pre_commit(self, translation, author):
         exporter = LibGetTextExporter(translation=translation)
         exporter.add_units(translation.unit_set.prefetch_full())
-
-        template = self.instance.configuration.get("target_folder")
-        if not template:
-            template = "{{ filename|dirname }}/{{ language_code }}.lua"
-
+        template = self.get_config(translation.component, "target_folder", "{{ filename|dirname }}/{{ language_code }}.lua")
         output = self.render_repo_filename(template, translation)
         if not output:
             return
@@ -83,12 +55,24 @@ class UpdateMessagesAddon(StoreBaseAddon):
             handle.write(exporter.serialize())
         translation.addon_commit_files.append(output)
 
+class UpdateMessagesAddon(LibGetTextBaseAddon):
+    events = (EVENT_POST_UPDATE,)
+    name = "sirinsidiator.libgettext.updatemessages"
+    verbose = _("LibGetText Update Messages")
+    description = _("This add-on uses xgettext to update the template file whenever the source repository has been changed.")
+
+    @classmethod
+    def can_install(cls, component, user):
+        if find_command("xgettext") is None:
+            return False
+        return super().can_install(component, user)
+
     def post_update(self, component, previous_head: str, skip_push: bool):
         project_root = component.full_path
-        source_folder = self.instance.configuration.get("source_folder", "./")
+        source_folder = self.get_config(component, "source_folder", "./")
         project_name = component.project.name
-        owner_name = self.instance.configuration.get("owner_name", "unknown")
-        bugs_address = self.instance.configuration.get("bugs_address", "{{ url }}")
+        owner_name = self.get_config(component, "owner_name", "unknown")
+        bugs_address = self.get_config(component, "bugs_address", "{{ url }}")
         bugs_address = render_template(bugs_address, component=component)
         out_file = component.get_new_base_filename()
 
@@ -171,3 +155,63 @@ class UpdateMessagesAddon(StoreBaseAddon):
         finally:
             if os.path.exists(temp.name):
                 os.unlink(temp.name)
+
+class SharedConfigForm(BaseAddonForm):
+    owner_name = forms.CharField(
+        label=_("Copyright holder:"),
+        initial="unknown",
+        required=False,
+    )
+    bugs_address = forms.CharField(
+        label=_("Bugs address:"),
+        initial="{{ url }}",
+        required=False,
+        help_text=_(
+            "URL or email where translators should report issues with the untranslated strings. "
+            "The weblate project url will be used if left empty"
+        ),
+    )
+    source_folder = forms.CharField(
+        label=_("Source folder:"),
+        initial="./",
+        required=False,
+        help_text=_(
+            "A relative path to the source files inside the repository. "
+            "The project root will be used if left empty"
+        ),
+    )
+    target_folder = forms.CharField(
+        label=_("Path of generated lua files"),
+        initial="{{ filename|dirname }}/{{ language_code }}.lua",
+        required=False,
+        help_text=_("If not specified, the location of the PO file will be used."),
+    )
+
+class SharedConfigAddon(LibGetTextBaseAddon):
+    name = "sirinsidiator.libgettext.config"
+    verbose = _("LibGetText Configuration")
+    description = _("This add-on is used to specify custom configurations for the other LibGetText addons.")
+    settings_form = SharedConfigForm
+
+class InitializeComponentAddon(LibGetTextBaseAddon):
+    events = (EVENT_POST_UPDATE,)
+    name = "sirinsidiator.libgettext.initializecomponent"
+    verbose = _("LibGetText Initialize Messages")
+    description = _("This add-on is used to force creating necessary files during project creation and should not be used afterwards.")
+
+    @classmethod
+    def can_install(cls, component, user):
+        if (
+            not component.addon_set.filter(name="sirinsidiator.libgettext.generateluafiles").exists() or
+            not component.addon_set.filter(name="sirinsidiator.libgettext.updatemessages").exists() or
+            not component.addon_set.filter(name="sirinsidiator.libgettext.config").exists() or
+            not component.addon_set.filter(name="weblate.gettext.msgmerge").exists()
+            ):
+            return False
+        return super().can_install(component, user)
+
+    def post_update(self, component, previous_head: str, skip_push: bool):
+        updatemessages = component.addon_set.get(name="sirinsidiator.libgettext.updatemessages")
+        updatemessages.addon.post_update(component, previous_head, skip_push)
+        msgmerge = component.addon_set.get(name="weblate.gettext.msgmerge")
+        msgmerge.addon.post_update(component, previous_head, skip_push)
