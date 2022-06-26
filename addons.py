@@ -7,6 +7,7 @@ from pathlib import Path
 from customize.exporter import LibGetTextExporter
 
 from django import forms
+from django.conf import settings
 from django.core.management.utils import find_command
 from django.utils.translation import gettext_lazy as _
 
@@ -16,6 +17,7 @@ from weblate.addons.events import EVENT_PRE_COMMIT, EVENT_POST_UPDATE
 from weblate.formats.base import (
     UpdateError,
 )
+from weblate.lang.models import Language
 from weblate.trans.util import (
     get_clean_env,
 )
@@ -44,8 +46,12 @@ class GenerateLuaFiles(LibGetTextBaseAddon):
     description = _("This add-on generates the translation Lua files for LibGetText whenever translation changes are committed.")
 
     def pre_commit(self, translation, author):
+        units = translation.unit_set.prefetch_full()
+        if not len(units):
+            return
+
         exporter = LibGetTextExporter(translation=translation)
-        exporter.add_units(translation.unit_set.prefetch_full())
+        exporter.add_units(units)
         template = self.get_config(translation.component, "target_folder", "{{ filename|dirname }}/{{ language_code }}.lua")
         output = self.render_repo_filename(template, translation)
         if not output:
@@ -211,6 +217,17 @@ class InitializeComponentAddon(LibGetTextBaseAddon):
         return super().can_install(component, user)
 
     def post_update(self, component, previous_head: str, skip_push: bool):
+        missing = Language.objects.exclude(translation__component=component).filter(code__in=settings.BASIC_LANGUAGES)
+        if missing:
+            component.log_debug("add missing languages: %s", missing)
+            for language in missing:
+                component.add_new_language(
+                    language,
+                    None,
+                    send_signal=False,
+                    create_translations=False,
+                )
+            component.create_translations()
         updatemessages = component.addon_set.get(name="sirinsidiator.libgettext.updatemessages")
         updatemessages.addon.post_update(component, previous_head, skip_push)
         msgmerge = component.addon_set.get(name="weblate.gettext.msgmerge")
