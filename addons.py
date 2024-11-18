@@ -13,7 +13,7 @@ from django.utils.translation import gettext_lazy as _
 
 from weblate.addons.base import BaseAddon, StoreBaseAddon
 from weblate.addons.forms import BaseAddonForm
-from weblate.addons.events import EVENT_PRE_COMMIT, EVENT_POST_UPDATE
+from weblate.addons.events import AddonEvent
 from weblate.formats.base import (
     UpdateError,
 )
@@ -40,7 +40,7 @@ class LibGetTextBaseAddon(StoreBaseAddon):
         return default
 
 class GenerateLuaFiles(LibGetTextBaseAddon):
-    events = (EVENT_PRE_COMMIT,)
+    events = (AddonEvent.EVENT_PRE_COMMIT,)
     name = "sirinsidiator.libgettext.generateluafiles"
     verbose = _("LibGetText Generate Lua Files")
     description = _("This add-on generates the translation Lua files for LibGetText whenever translation changes are committed.")
@@ -62,7 +62,7 @@ class GenerateLuaFiles(LibGetTextBaseAddon):
         translation.addon_commit_files.append(output)
 
 class UpdateMessagesAddon(LibGetTextBaseAddon):
-    events = (EVENT_POST_UPDATE,)
+    events = (AddonEvent.EVENT_POST_UPDATE,)
     name = "sirinsidiator.libgettext.updatemessages"
     verbose = _("LibGetText Update Messages")
     description = _("This add-on uses xgettext to update the template file whenever the source repository has been changed.")
@@ -200,7 +200,7 @@ class SharedConfigAddon(LibGetTextBaseAddon):
     settings_form = SharedConfigForm
 
 class InitializeComponentAddon(LibGetTextBaseAddon):
-    events = (EVENT_POST_UPDATE,)
+    events = (AddonEvent.EVENT_POST_UPDATE,)
     name = "sirinsidiator.libgettext.initializecomponent"
     verbose = _("LibGetText Initialize Messages")
     description = _("This add-on is used to force creating necessary files during project creation and should not be used afterwards.")

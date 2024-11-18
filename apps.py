@@ -5,8 +5,7 @@ class CustomizeConfig(AppConfig):
     verbose_name = 'docker customize config'
     name = "customize"
 
-    def __init__(self, app_name, app_module):
-        AppConfig.__init__(self,app_name, app_module)
+    def ready(self):
         from weblate.formats.models import FormatsConf
         from django.conf import settings
         FormatsConf.EXPORTERS += ("customize.exporter.LibGetTextExporter",)
