@@ -8,23 +8,22 @@ from customize.exporter import LibGetTextExporter
 
 from django import forms
 from django.conf import settings
-from django.core.management.utils import find_command
+from django.core.exceptions import ObjectDoesNotExist
 from django.utils.translation import gettext_lazy as _
 
-from weblate.addons.base import BaseAddon, StoreBaseAddon
+from weblate.addons.base import BaseAddon
 from weblate.addons.forms import BaseAddonForm
 from weblate.addons.events import AddonEvent
 from weblate.formats.base import (
     UpdateError,
 )
 from weblate.lang.models import Language
-from weblate.trans.util import (
-    get_clean_env,
-)
+from weblate.utils.commands import find_runtime_command, get_clean_env
 from weblate.utils.errors import report_error
 from weblate.utils.render import render_template
 
-class LibGetTextBaseAddon(StoreBaseAddon):
+class LibGetTextBaseAddon(BaseAddon):
+    icon = "wrench.svg"
     compat = {"file_format": {"po-mono"}}
     alert = "AddonScriptError"
 
@@ -40,7 +39,7 @@ class LibGetTextBaseAddon(StoreBaseAddon):
         return default
 
 class GenerateLuaFiles(LibGetTextBaseAddon):
-    events = (AddonEvent.EVENT_PRE_COMMIT,)
+    events = {AddonEvent.EVENT_PRE_COMMIT}
     name = "sirinsidiator.libgettext.generateluafiles"
     verbose = _("LibGetText Generate Lua Files")
     description = _("This add-on generates the translation Lua files for LibGetText whenever translation changes are committed.")
@@ -68,10 +67,16 @@ class UpdateMessagesAddon(LibGetTextBaseAddon):
     description = _("This add-on uses xgettext to update the template file whenever the source repository has been changed.")
 
     @classmethod
-    def can_install(cls, component, user):
-        if find_command("xgettext") is None:
-            return False
-        return super().can_install(component, user)
+    def can_install(
+        cls,
+        *,
+        component = None,
+        category = None,
+        project = None,
+    ) -> bool:
+        return find_runtime_command("xgettext") is not None and super().can_install(
+            component=component, category=category, project=project
+        )
 
     def post_update(self, component, previous_head: str, skip_push: bool):
         project_root = component.full_path
@@ -206,15 +211,22 @@ class InitializeComponentAddon(LibGetTextBaseAddon):
     description = _("This add-on is used to force creating necessary files during project creation and should not be used afterwards.")
 
     @classmethod
-    def can_install(cls, component, user):
+    def can_install(
+        cls,
+        *,
+        component = None,
+        category = None,
+        project = None,
+    ) -> bool:
         if (
+            not component or
             not component.addon_set.filter(name="sirinsidiator.libgettext.generateluafiles").exists() or
             not component.addon_set.filter(name="sirinsidiator.libgettext.updatemessages").exists() or
             not component.addon_set.filter(name="sirinsidiator.libgettext.config").exists() or
             not component.addon_set.filter(name="weblate.gettext.msgmerge").exists()
             ):
             return False
-        return super().can_install(component, user)
+        return super().can_install(component=component, category=category, project=project)
 
     def post_update(self, component, previous_head: str, skip_push: bool):
         missing = Language.objects.exclude(translation__component=component).filter(code__in=settings.BASIC_LANGUAGES)
